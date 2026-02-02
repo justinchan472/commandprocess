@@ -5,7 +5,7 @@ use IEEE.NUMERIC_STD.ALL;
 entity cmdProc is
   port (
     clk         : in  STD_LOGIC;
-    reset       : in  STD_LOGIC;
+    reset       : in  STD_LOGIC;     -- active low reset 
     -- UART Rx
     done        : out  STD_LOGIC;
     valid       : in  STD_LOGIC;
@@ -27,93 +27,43 @@ entity cmdProc is
   );
 end cmdProc;
 
-architecture FSM of cmdProc is
+architecture rtl of cmdProc is      -- rtl = register-transfer level 
 
+-- define state type and signal state
     type state_type is (
         IDLE, -- waiting for start of command
-        IDLE_WAIT_ECHO, -- wait for tx done (echo to complete)
-        A_ECHO, -- echo back 'A' to host
-        A_WAIT_ECHO, -- wait for tx done (echo to complete)
-        A_GET_D1, -- get first data byte when rxnow =1 
-        A_ECHO_D1, -- echo back first data byte
-        A_WAIT_ECHO_D1, -- wait for tx done (echo to complete)
-        A_GET_D2, -- get second data byte when rxnow =1
-        A_ECHO_D2, -- echo back second data byte
-        A_WAIT_ECHO_D2, -- wait for tx done (echo to complete)
-        A_GET_D3, -- get third data byte when rxnow =1
-        A_ECHO_D3, -- echo back third data byte
-        A_WAIT_ECHO_D3, -- wait for tx done (echo to complete)
-        A_START_DP, -- tells data processor to start processing
-        A_WAIT_DATA, -- wait for data ready to equal 1/ if seqdone = 1
-        A_SEND_HI, -- send upper nibble as hex
-        A_WAIT_HI,-- wait for txdone = 1 to finish sending
-        A_SEND_LO, -- send lower nibble as hex
-        A_WAIT_LO );-- wait for txdone = 1 to finish sending
+        RX_CAPTURE, -- capture incoming command byte
+        LOAD, -- capture or latch command input into internal register 
+        START_PROC, -- assert 'start' to processing block
+        PROC_WAIT, --wait for seqDone process to complete
+        SEND_STATUS, -- assert txNow and put status byte on data_out
+        WAIT_TX_DONE, --wait for an external event or condition 
+        DONE_STATE, -- finalise command processing and present results to the outside world
+        ERROR_STATE ); -- an error/interuption occured while processing the command 
         
 
     signal state : state_type := IDLE;
+    signal next_state: P_state_type :=IDLE;
 
-    signal hundreds : unsigned(3 downto 0) := (others => '0');                    
-    signal tens     : unsigned(3 downto 0) := (others => '0');                    
-    signal ones     : unsigned(3 downto 0) := (others => '0');  
+-- internal registers to hold captured command and parameters
+    signal cmg_reg   : std_logic_vector(7 downto 0) := (others => '0');
+    signal numWords_reg : std_logic_vector(11 downto 0) := (others => '0');
+    signal dataout_reg : std_logic_vector(7 downto 0) := (others => '0');
 
-    signal current_byte : std_logic_vector(7 downto 0);                           
-    signal count : integer range 0 to 15 := 0; 
+begin      
+-- two state is require in this process
+-- this is the first state
+-- synchronous state register + registered update 
+-- reset is active low: reset = 0 --> reset to intial values instantly 
 
-begin                                                                 
-    process(clk)                                                      
+    state_reg : process(clk,reset)                                                      
     begin                                                             
-        if rising_edge(clk) then                                      
-            if reset = '1' then                                       
-                state <= IDLE;                                        
-                done <= '0';                                          
-                txNow <= '0';                                         
-            else                                                      
-                -- Defaults                                           
-                done <= '0';                                          
-                txNow <= '0';                                         
-                                                                        
-                                                                        
-                case state is                                         
-                                                                        
-                    when IDLE =>                                      
-                        if valid = '1' then                           
-                            done <= '1';                              
-                            data_out <= data_in;                      
-                            txNow <= '1';                             
-                                                                        
-                                                                        
-                            case data_in is                           
-                                when x"41" =>                         
-                                    state <= A_WAIT_ECHO;             
-                                when x"61" =>                         
-                                    state <= A_WAIT_ECHO;             
-                                when others =>                        
-                                    state <= IDLE_WAIT_ECHO;          
-                            end case;                                 
-                        end if;                                       
-                                                                        
-                                                                        
-                    when IDLE_WAIT_ECHO =>                            
-                        if txDone = '1' then                          
-                            state <= IDLE;                            
-                        end if;                                       
-                                                                        
-                                                                        
-                    when A_WAIT_ECHO =>                               
-                        if txDone = '1' then                          
-                            state <= A_GET_D1;                        
-                        end if;                                       
-                                                                        
-                    when A_GET_D1 =>                                  
-                        -- add code here                              
-                                                                        
-                    when others =>                                    
-                        state <= IDLE;                                
-                                                                        
-                                                                        
-                end case;                                             
-            end if;                                                   
-        end if;                                                       
-    end process;                                                      
-end FSM;
+        if reset = '0' then
+          state       <= IDLE;
+          cmd_reg     <= (others =>'0');
+          numWords_reg     <= (others =>'0');
+          data_out_reg     <= (others =>'0');
+elseif rusing_edge(clk) then 
+          state <= next_state;
+
+-- register 
