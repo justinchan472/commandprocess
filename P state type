@@ -1,0 +1,119 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity cmdProc is
+  port (
+    clk         : in  STD_LOGIC;
+    reset       : in  STD_LOGIC;
+    -- UART Rx
+    done        : out  STD_LOGIC;
+    valid       : in  STD_LOGIC;
+    oe          : in  STD_LOGIC;
+    fe          : in  STD_LOGIC;
+    data_in     : in  STD_LOGIC_VECTOR (7 downto 0);
+    -- UART Tx
+    data_out    : out STD_LOGIC_VECTOR (7 downto 0);
+    txNow       : out STD_LOGIC;
+    txDone      : in STD_LOGIC;
+    -- Data processing
+    start       : out STD_LOGIC;
+    numWords    : out STD_LOGIC_VECTOR (11 downto 0);
+    dataReady   : in  STD_LOGIC;
+    byte        : in STD_LOGIC_VECTOR (7 downto 0);
+    maxIndex    : in STD_LOGIC_VECTOR (11 downto 0);
+    dataResults : in STD_LOGIC_VECTOR (55 downto 0);
+    seqDone     : in STD_LOGIC
+  );
+end cmdProc;
+
+architecture FSM of cmdProc is
+
+    type state_type is (
+        IDLE, -- waiting for start of command
+        IDLE_WAIT_ECHO, -- wait for tx done (echo to complete)
+        A_ECHO, -- echo back 'A' to host
+        A_WAIT_ECHO, -- wait for tx done (echo to complete)
+        A_GET_D1, -- get first data byte when rxnow =1 
+        A_ECHO_D1, -- echo back first data byte
+        A_WAIT_ECHO_D1, -- wait for tx done (echo to complete)
+        A_GET_D2, -- get second data byte when rxnow =1
+        A_ECHO_D2, -- echo back second data byte
+        A_WAIT_ECHO_D2, -- wait for tx done (echo to complete)
+        A_GET_D3, -- get third data byte when rxnow =1
+        A_ECHO_D3, -- echo back third data byte
+        A_WAIT_ECHO_D3, -- wait for tx done (echo to complete)
+        A_START_DP, -- tells data processor to start processing
+        A_WAIT_DATA, -- wait for data ready to equal 1/ if seqdone = 1
+        A_SEND_HI, -- send upper nibble as hex
+        A_WAIT_HI,-- wait for txdone = 1 to finish sending
+        A_SEND_LO, -- send lower nibble as hex
+        A_WAIT_LO );-- wait for txdone = 1 to finish sending
+        
+
+    signal state : state_type := IDLE;
+
+    signal hundreds : unsigned(3 downto 0) := (others => '0');                    
+    signal tens     : unsigned(3 downto 0) := (others => '0');                    
+    signal ones     : unsigned(3 downto 0) := (others => '0');  
+
+    signal current_byte : std_logic_vector(7 downto 0);                           
+    signal count : integer range 0 to 15 := 0; 
+
+begin                                                                 
+    process(clk)                                                      
+    begin                                                             
+        if rising_edge(clk) then                                      
+            if reset = '1' then                                       
+                state <= IDLE;                                        
+                done <= '0';                                          
+                txNow <= '0';                                         
+            else                                                      
+                -- Defaults                                           
+                done <= '0';                                          
+                txNow <= '0';                                         
+                                                                        
+                                                                        
+                case state is                                         
+                                                                        
+                    when IDLE =>                                      
+                        if valid = '1' then                           
+                            done <= '1';                              
+                            data_out <= data_in;                      
+                            txNow <= '1';                             
+                                                                        
+                                                                        
+                            case data_in is                           
+                                when x"41" =>                         
+                                    state <= A_WAIT_ECHO;             
+                                when x"61" =>                         
+                                    state <= A_WAIT_ECHO;             
+                                when others =>                        
+                                    state <= IDLE_WAIT_ECHO;          
+                            end case;                                 
+                        end if;                                       
+                                                                        
+                                                                        
+                    when IDLE_WAIT_ECHO =>                            
+                        if txDone = '1' then                          
+                            state <= IDLE;                            
+                        end if;                                       
+                                                                        
+                                                                        
+                    when A_WAIT_ECHO =>                               
+                        if txDone = '1' then                          
+                            state <= A_GET_D1;                        
+                        end if;                                       
+                                                                        
+                    when A_GET_D1 =>                                  
+                        -- add code here                              
+                                                                        
+                    when others =>                                    
+                        state <= IDLE;                                
+                                                                        
+                                                                        
+                end case;                                             
+            end if;                                                   
+        end if;                                                       
+    end process;                                                      
+end FSM;
