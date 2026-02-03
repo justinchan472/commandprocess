@@ -53,7 +53,7 @@ architecture rtl of cmdProc is      -- rtl = register-transfer level
 begin      
 -- two state is require in this process
 -- this is the first state
--- synchronous state register + registered update 
+-- 1). synchronous state register + registered update 
 -- reset is active low: reset = 0 --> reset to intial values instantly 
 
     state_reg : process(clk,reset)                                                      
@@ -63,7 +63,120 @@ begin
           cmd_reg     <= (others =>'0');
           numWords_reg     <= (others =>'0');
           data_out_reg     <= (others =>'0');
-elseif rusing_edge(clk) then 
+elseif rising_edge(clk) then 
           state <= next_state;
 
--- register 
+-- register parameter values on the clock edge when transitioning 
+if next_state = RX_CAPTURE then
+cmd_reg <= data_in;           -- capture the received byte
+elsif next_state = LOAD then
+numWords_reg <="0000" & cmd_reg;    --example mapping where derive numWords from the received command byte
+-- current policy: zero-extend the 8 bits command into 12-bit numbers
+elsif next_state = SEND_STATUS then
+-- data_out_reg is set here for the value to be transmitted.
+        -- For success we send 0x00; for error we set 0xFF in the combinational logic.
+        -- Keep the registered value stable during the tx handshake.
+        data_out_reg <= data_out_reg; -- no-op; actual assignment below in comb logic
+end if;
+end if;
+nd process state_reg;
+
+-- 2) Combinational next-state and Mealy outputs
+  --    Defaults first to avoid inferred latches.
+  --    Mealy outputs (start, txNow, done) can be asserted combinationally
+  --    based on current state AND inputs.
+  --------------------------------------------------------------------------
+  comb_logic : process(state, valid, oe, fe, data_in, cmd_reg, numWords_reg,
+                       dataReady, seqDone, txDone)
+  begin
+    -- defaults
+    next_state <= state;
+    done       <= '0';
+    start      <= '0';
+    txNow      <= '0';
+    data_out   <= data_out_reg; -- drive from registered value by default
+    numWords   <= numWords_reg;
+
+    case state is
+
+      when IDLE =>
+        -- wait for a new valid Rx byte that has no errors
+        if (valid = '1') and (oe = '0') and (fe = '0') then
+          -- Mealy-style immediate capture transition: move to RX_CAPTURE
+          next_state <= RX_CAPTURE;
+        else
+          next_state <= IDLE;
+        end if;
+
+      when RX_CAPTURE =>
+        -- cmd_reg is captured in the synchronous process on the same cycle we
+        -- enter RX_CAPTURE. Move to LOAD to derive parameters on next clock.
+        next_state <= LOAD;
+
+      when LOAD =>
+        -- Parameters (numWords_reg) were derived in the registered process.
+        -- Immediately assert a Mealy 'start' to the processing block and go to
+        -- PROC_WAIT to wait for completion.
+        start <= '1'; -- Mealy pulse: depends on state and registered params
+        next_state <= PROC_WAIT;
+
+      when PROC_WAIT =>
+        -- Wait for the processing block to indicate completion.
+        -- Use seqDone as the canonical processing done signal.
+        if seqDone = '1' then
+          -- on success go send status out over UART
+          next_state <= SEND_STATUS;
+        elsif dataReady = '1' and seqDone = '0' then
+          -- could stay waiting; example shows only seqDone drives completion
+          next_state <= PROC_WAIT;
+        else
+          next_state <= PROC_WAIT;
+        end if;
+
+      when SEND_STATUS =>
+        -- decide what status byte to send. Here we send 0x00 for success.
+        -- For demonstration, send success if seqDone is '1', otherwise error.
+        if seqDone = '1' then
+          data_out_reg <= x"00";  -- success status
+        else
+          data_out_reg <= x"FF";  -- generic error
+        end if;
+        data_out <= data_out_reg; -- present the byte immediately (registered value used by default)
+        -- Assert txNow as a Mealy output to request transmission immediately
+        txNow <= '1';
+        next_state <= WAIT_TX_DONE;
+
+      when WAIT_TX_DONE =>
+        -- Wait for transmitter to report it's done sending
+        txNow <= '0'; -- ensure txNow is a single-pulse request (asserted in SEND_STATUS)
+        if txDone = '1' then
+          next_state <= DONE_STATE;
+        else
+          next_state <= WAIT_TX_DONE;
+        end if;
+
+      when DONE_STATE =>
+        -- Indicate overall command processing is done for one cycle
+        done <= '1';
+        next_state <= IDLE;
+
+      when ERROR_STATE =>
+        -- On error, try to notify via UART as well (could reuse SEND_STATUS)
+        data_out_reg <= x"FF";
+        txNow <= '1';
+        if txDone = '1' then
+          next_state <= IDLE;
+        else
+          next_state <= ERROR_STATE;
+        end if;
+
+      when others =>
+        next_state <= IDLE;
+    end case;
+  end process comb_logic;
+
+  -- ensure multi-bit outputs are driven from registers for stable timing
+  numWords  <= numWords_reg;
+  data_out  <= data_out_reg;
+
+end architecture;
