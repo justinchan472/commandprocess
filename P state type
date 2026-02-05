@@ -60,25 +60,25 @@ begin
     begin                                                             
         if reset = '0' then
           state       <= IDLE;
-          cmd_reg     <= (others =>'0');
-          numWords_reg     <= (others =>'0');
-          data_out_reg     <= (others =>'0');
+            cmd_reg     <= (others =>'0');
+            numWords_reg     <= (others =>'0');
+            data_out_reg     <= (others =>'0');
 elseif rising_edge(clk) then 
           state <= next_state;
 
 -- register parameter values on the clock edge when transitioning 
 if next_state = RX_CAPTURE then
-cmd_reg <= data_in;           -- capture the received byte
+  cmd_reg <= data_in;           -- capture the received byte
 elsif next_state = LOAD then
-numWords_reg <="0000" & cmd_reg;    --example mapping where derive numWords from the received command byte
+  numWords_reg <="0000" & cmd_reg;    --example mapping where derive numWords from the received command byte
 -- current policy: zero-extend the 8 bits command into 12-bit numbers
 elsif next_state = SEND_STATUS then
 -- data_out_reg is set here for the value to be transmitted.
         -- For success we send 0x00; for error we set 0xFF in the combinational logic.
         -- Keep the registered value stable during the tx handshake.
         data_out_reg <= data_out_reg; -- no-op; actual assignment below in comb logic
-end if;
-end if;
+    end if;
+  end if;
 nd process state_reg;
 
 -- 2) Combinational next-state and Mealy outputs
