@@ -129,9 +129,6 @@ nd process state_reg;
         if seqDone = '1' then
           -- on success go send status out over UART
           next_state <= SEND_STATUS;
-        elsif dataReady = '1' and seqDone = '0' then
-          -- could stay waiting, but was this nessary? 
-          next_state <= PROC_WAIT;
         else
           next_state <= PROC_WAIT;
         end if;
