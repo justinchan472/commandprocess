@@ -43,12 +43,15 @@ architecture rtl of cmdProc is      -- rtl = register-transfer level
         
 
     signal state : state_type := IDLE;
-    signal next_state: P_state_type :=IDLE;
+    signal next_state: state_type :=IDLE;
 
 -- internal registers to hold captured command and parameters
-    signal cmg_reg   : std_logic_vector(7 downto 0) := (others => '0');
+    signal cmd_reg   : std_logic_vector(7 downto 0) := (others => '0');
     signal numWords_reg : std_logic_vector(11 downto 0) := (others => '0');
-    signal dataout_reg : std_logic_vector(7 downto 0) := (others => '0');
+    signal data_out_reg : std_logic_vector(7 downto 0) := (others => '0');
+
+--combinational ->register signals
+signal data_out_next : std_logic_vector(7 downto 0) := (others => '0');
 
 begin      
 -- two state is require in this process
@@ -60,10 +63,10 @@ begin
     begin                                                             
         if reset = '0' then
           state       <= IDLE;
-            cmd_reg     <= (others =>'0');
+            cmd_reg          <= (others =>'0');
             numWords_reg     <= (others =>'0');
             data_out_reg     <= (others =>'0');
-elseif rising_edge(clk) then 
+elsif rising_edge(clk) then 
           state <= next_state;
 
 -- register parameter values on the clock edge when transitioning 
@@ -76,7 +79,7 @@ elsif next_state = SEND_STATUS then
 -- data_out_reg is set here for the value to be transmitted.
         -- For success we send 0x00; for error we set 0xFF in the combinational logic.
         -- Keep the registered value stable during the tx handshake.
-        data_out_reg <= data_out_reg; -- no-op; actual assignment below in comb logic
+        data_out_reg <= data_out_next; -- no-op; actual assignment below in comb logic
     end if;
   end if;
 nd process state_reg;
@@ -89,7 +92,7 @@ nd process state_reg;
   comb_logic : process(state, valid, oe, fe, data_in, cmd_reg, numWords_reg,
                        dataReady, seqDone, txDone)
   begin
-    -- defaults
+    -- stating variables required for this code
     next_state <= state;
     done       <= '0';
     start      <= '0';
@@ -127,7 +130,7 @@ nd process state_reg;
           -- on success go send status out over UART
           next_state <= SEND_STATUS;
         elsif dataReady = '1' and seqDone = '0' then
-          -- could stay waiting; example shows only seqDone drives completion
+          -- could stay waiting, but was this nessary? 
           next_state <= PROC_WAIT;
         else
           next_state <= PROC_WAIT;
