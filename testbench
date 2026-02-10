@@ -1,0 +1,176 @@
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+-- Testbench for cmdProc
+entity cmdProc_tb is
+end entity;
+
+architecture tb of cmdProc_tb is
+
+  -- clock and reset
+  signal clk    : std_logic := '0';
+  signal resetn : std_logic := '0'; -- active low
+
+  -- DUT ports
+  signal done_tb       : std_logic;
+  signal valid_tb      : std_logic := '0';
+  signal oe_tb         : std_logic := '0';
+  signal fe_tb         : std_logic := '0';
+  signal data_in_tb    : std_logic_vector(7 downto 0) := (others => '0');
+
+  signal data_out_tb   : std_logic_vector(7 downto 0);
+  signal txNow_tb      : std_logic;
+  signal txDone_tb     : std_logic := '0';
+
+  signal start_tb      : std_logic;
+  signal numWords_tb   : std_logic_vector(11 downto 0);
+  signal dataReady_tb  : std_logic := '0';
+  signal byte_tb       : std_logic_vector(7 downto 0) := (others => '0');
+  signal maxIndex_tb   : std_logic_vector(11 downto 0) := (others => '0');
+  signal dataResults_tb: std_logic_vector(55 downto 0) := (others => '0');
+  signal seqDone_tb    : std_logic := '0';
+
+  constant CLK_PERIOD : time := 10 ns;
+
+  -- helper: wait n clock cycles
+  procedure wait_cycles(n : natural) is
+  begin
+    for i in 1 to n loop
+      wait until rising_edge(clk);
+    end loop;
+  end procedure;
+
+begin
+
+  -- instantiate DUT (assumes cmdProc.vhd is in same directory / compiled)
+  DUT: entity work.cmdProc
+    port map (
+      clk         => clk,
+      reset       => resetn,
+      done        => done_tb,
+      valid       => valid_tb,
+      oe          => oe_tb,
+      fe          => fe_tb,
+      data_in     => data_in_tb,
+      data_out    => data_out_tb,
+      txNow       => txNow_tb,
+      txDone      => txDone_tb,
+      start       => start_tb,
+      numWords    => numWords_tb,
+      dataReady   => dataReady_tb,
+      byte        => byte_tb,
+      maxIndex    => maxIndex_tb,
+      dataResults => dataResults_tb,
+      seqDone     => seqDone_tb
+    );
+
+  -- clock generation
+  clk_proc: process
+  begin
+    while true loop
+      clk <= '0';
+      wait for CLK_PERIOD/2;
+      clk <= '1';
+      wait for CLK_PERIOD/2;
+    end loop;
+  end process;
+
+  -- test stimulus
+  stim_proc: process
+  begin
+    -- reset active
+    resetn <= '0';
+    wait for 3*CLK_PERIOD;
+    resetn <= '1'; -- release reset
+    wait for CLK_PERIOD;
+
+    ----------------------------------------------------------------
+    -- Test 1: Normal successful command flow
+    -- Send a valid Rx byte and expect the FSM to capture it, assert start,
+    -- then when seqDone asserted, request tx (txNow), wait for txDone,
+    -- and finally assert done for one cycle.
+    ----------------------------------------------------------------
+    report "TEST1: Normal command flow: drive one valid byte" severity note;
+
+    -- prepare inputs
+    fe_tb <= '0';
+    oe_tb <= '0';
+    data_in_tb <= x"05";    -- command byte = 0x05
+    valid_tb <= '1';        -- present valid for one cycle
+    wait_cycles(1);
+    valid_tb <= '0';
+
+    -- after capture and load, start should be asserted while in LOAD state
+    -- wait 2 cycles to step through RX_CAPTURE -> LOAD
+    wait_cycles(2);
+
+    assert start_tb = '1'
+      report "FAIL: start not asserted after LOAD (expected Mealy start pulse)." severity error;
+    report "PASS: start asserted" severity note;
+
+    -- now clear start condition (it is combinational / Mealy; will go away next cycle)
+    wait_cycles(1);
+
+    -- simulate processing block: assert seqDone after 1 cycle
+    seqDone_tb <= '1';
+    wait_cycles(1);
+    seqDone_tb <= '0';
+
+    -- Expect txNow to be asserted in SEND_STATUS combinationally
+    -- Wait one cycle so SEND_STATUS -> WAIT_TX_DONE progression occurs
+    wait_cycles(1);
+
+    assert txNow_tb = '1'
+      report "FAIL: txNow not asserted when SEND_STATUS expected." severity error;
+    report "PASS: txNow asserted" severity note;
+
+    -- data_out is registered; check it on next cycle (data_out_reg captured in SEND_STATUS)
+    wait_cycles(1);
+    assert data_out_tb = x"00"
+      report "FAIL: expected success status x00 on data_out." severity error;
+    report "PASS: data_out = x00" severity note;
+
+    -- now simulate transmitter completing
+    txDone_tb <= '1';
+    wait_cycles(1);
+    txDone_tb <= '0';
+
+    -- after txDone, done should be asserted for one cycle
+    wait_cycles(1);
+    assert done_tb = '1'
+      report "FAIL: done not asserted after txDone." severity error;
+    report "PASS: done asserted" severity note;
+
+    wait_cycles(1);
+
+    ----------------------------------------------------------------
+    -- Test 2: Ignore invalid/errored Rx bytes (fe = framing error)
+    ----------------------------------------------------------------
+    report "TEST2: Send invalid Rx (fe=1) and ensure FSM stays in IDLE" severity note;
+
+    data_in_tb <= x"AA";
+    fe_tb <= '1';
+    valid_tb <= '1';
+    wait_cycles(1);
+    valid_tb <= '0';
+    fe_tb <= '0';
+
+    -- give a couple of cycles for state machine to react if it were to
+    wait_cycles(3);
+
+    -- After invalid byte, FSM should NOT have asserted start or txNow.
+    assert start_tb = '0'
+      report "FAIL: start asserted on invalid Rx." severity error;
+    assert txNow_tb = '0'
+      report "FAIL: txNow asserted on invalid Rx." severity error;
+    report "PASS: invalid Rx ignored" severity note;
+
+    ----------------------------------------------------------------
+    -- End of tests
+    ----------------------------------------------------------------
+    report "All tests completed." severity note;
+    wait;
+  end process stim_proc;
+
+end architecture;
