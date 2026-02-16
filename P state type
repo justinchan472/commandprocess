@@ -1,6 +1,8 @@
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
+use work.common_types.all;
+
 
 entity cmdProc is
   port (
@@ -21,7 +23,7 @@ entity cmdProc is
     numWords    : out STD_LOGIC_VECTOR (11 downto 0);
     dataReady   : in  STD_LOGIC;
     byte        : in STD_LOGIC_VECTOR (7 downto 0);
-    maxIndex    : in STD_LOGIC_VECTOR (11 downto 0);
+    maxIndex    : in  bcd_array_type;
     dataResults : in STD_LOGIC_VECTOR (55 downto 0);
     seqDone     : in STD_LOGIC
   );
