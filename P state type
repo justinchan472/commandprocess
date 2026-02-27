@@ -20,11 +20,12 @@ entity cmdProc is
     txDone      : in STD_LOGIC;
     -- Data processing
     start       : out STD_LOGIC;
-    numWords    : out bcd_array_type (11 downto 0);
+--numWords as a plain 12-bit vector
+    numWords    : out STD-LOGIC-VECTOR (11 downto 0);
     dataReady   : in  STD_LOGIC;
     byte        : in STD_LOGIC_VECTOR (7 downto 0);
     maxIndex    : in bcd_array_type; 
-    dataResults : in bcd_array_type (55 downto 0);
+    dataResults : in STD-LOGIC-VECTOR (55 downto 0);
     seqDone     : in STD_LOGIC
   );
 end cmdProc;
@@ -48,7 +49,7 @@ architecture rtl of cmdProc is      -- rtl = register-transfer level
     signal next_state: state_type :=IDLE;
 
 -- internal registers to hold captured command and parameters
-    signal cmd_reg   : std_logic_vector(7 downto 0) := (others => '0');
+    signal maxIndex_vec  : std_logic_vector(11 downto 0) := (others => '0');
     signal numWords_reg : std_logic_vector(11 downto 0) := (others => '0');
     signal data_out_reg : std_logic_vector(7 downto 0) := (others => '0');
 
@@ -63,28 +64,27 @@ begin
 
     state_reg : process(clk,reset)                                                      
     begin                                                             
-        if reset = '0' then
-          state       <= IDLE;
-            cmd_reg          <= (others =>'0');
-            numWords_reg     <= (others =>'0');
-            data_out_reg     <= (others =>'0');
-elsif rising_edge(clk) then 
-          state <= next_state;
+         if reset = '0' then
+      -- reset registers
+      data_out_reg <= (others => '0');
+      numWords_reg <= (others => '0');
+      -- ...
+    elsif rising_edge(clk) then
+      state <= next_state;
 
--- register parameter values on the clock edge when transitioning 
-if next_state = RX_CAPTURE then
-  cmd_reg <= data_in;           -- capture the received byte
-elsif next_state = LOAD then
-  numWords_reg <="0000" & cmd_reg;    --example mapping where derive numWords from the received command byte
--- current policy: zero-extend the 8 bits command into 12-bit numbers
-elsif next_state = SEND_STATUS then
--- data_out_reg is set here for the value to be transmitted.
-        -- For success we send 0x00; for error we set 0xFF in the combinational logic.
-        -- Keep the registered value stable during the tx handshake.
-        data_out_reg <= data_out_next; -- no-op; actual assignment below in comb logic
+      if next_state = RX_CAPTURE then
+        cmd_reg <= data_in;
+      elsif next_state = LOAD then
+        numWords_reg <= "0000" & cmd_reg;
+      elsif next_state = SEND_STATUS then
+        -- capture the combinationally computed next value into the register
+        data_out_reg <= data_out_next;
+      end if;
+
+      -- sample maxIndex into a flat vector if you need it:
+      maxIndex_vec <= maxIndex(2) & maxIndex(1) & maxIndex(0);
     end if;
-  end if;
-end process state_reg;
+  end process state_reg;
 
 -- 2) Combinational next-state and Mealy outputs
   --    Defaults first to avoid inferred latches.
@@ -100,7 +100,7 @@ end process state_reg;
     start      <= '0';
     txNow      <= '0';
     data_out   <= data_out_reg; -- drive from registered value by default
-    numWords   <= numWords_reg;
+    --numWords   <= numWords_reg;
 
     case state is
 
@@ -114,7 +114,7 @@ end process state_reg;
         end if;
 
       when RX_CAPTURE =>
-        -- cmd_reg is captured in the synchronous process on the same cycle we
+        -- maxIndex_vec is captured in the synchronous process on the same cycle we
         -- enter RX_CAPTURE. Move to LOAD to derive parameters on next clock.
         next_state <= LOAD;
 
@@ -181,4 +181,4 @@ end process state_reg;
   numWords  <= numWords_reg;
   data_out  <= data_out_reg;
 
-end architecture;
+end architecture rtl;
