@@ -20,11 +20,11 @@ entity cmdProc is
     txDone      : in STD_LOGIC;
     -- Data processing
     start       : out STD_LOGIC;
-    numWords    : out STD_LOGIC_VECTOR (11 downto 0);
+    numWords    : out bcd_array_type (11 downto 0);
     dataReady   : in  STD_LOGIC;
     byte        : in STD_LOGIC_VECTOR (7 downto 0);
-    maxIndex    : in  bcd_array_type;
-    dataResults : in STD_LOGIC_VECTOR (55 downto 0);
+    maxIndex    : in bcd_array_type; 
+    dataResults : in bcd_array_type (55 downto 0);
     seqDone     : in STD_LOGIC
   );
 end cmdProc;
@@ -84,7 +84,7 @@ elsif next_state = SEND_STATUS then
         data_out_reg <= data_out_next; -- no-op; actual assignment below in comb logic
     end if;
   end if;
-nd process state_reg;
+end process state_reg;
 
 -- 2) Combinational next-state and Mealy outputs
   --    Defaults first to avoid inferred latches.
