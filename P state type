@@ -73,7 +73,7 @@ begin
       state <= next_state;
 
       if next_state = RX_CAPTURE then
-        cmd_reg <= data_in;
+        maxIndex_vec <= data_in;
       elsif next_state = LOAD then
         numWords_reg <= "0000" & cmd_reg;
       elsif next_state = SEND_STATUS then
